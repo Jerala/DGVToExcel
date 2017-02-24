@@ -29,7 +29,6 @@ End Class
 
 Module ExcelMail
 
-    Private prfrm As ProgressBarDialog
 
     Function StartExcel(Optional ByVal IsVisible As Boolean = True, Optional NumOfSheets As Integer = 1) As Object 'Excel.Application
 
@@ -45,7 +44,7 @@ Module ExcelMail
         Try
             objExcel.Quit()
         Catch ex As Exception
-            Add_error(Err)
+
         End Try
 
     End Sub
@@ -63,17 +62,17 @@ Module ExcelMail
             nStartRow += 1
         End If
 
-        prfrm = New ProgressBarDialog
-        prfrm.Show()
+        'prfrm = New ProgressBarDialog
+        'prfrm.Show()
 
         For nRow = 0 To dt.Rows.Count - 1
             For nCol = 0 To dt.Columns.Count - 1
                 objSheet.Cells(nStartRow + nRow, nStartCol + nCol) = dt.Rows(nRow).Item(nCol)
-                prfrm.set_val((nRow * dt.Columns.Count + nCol + 1) / (dt.Rows.Count * dt.Columns.Count) * 100)
+                'prfrm.set_val((nRow * dt.Columns.Count + nCol + 1) / (dt.Rows.Count * dt.Columns.Count) * 100)
             Next nCol
         Next nRow
 
-        prfrm.Close()
+        'prfrm.Close()
 
     End Sub
 
@@ -96,8 +95,8 @@ Module ExcelMail
             strow += 1
         End If
 
-        prfrm = New ProgressBarDialog
-        prfrm.Show()
+        'prfrm = New ProgressBarDialog
+        'prfrm.Show()
 
         For nRow = 0 To dg.Rows.Count - 1
             stcol = nStartCol
@@ -112,13 +111,13 @@ Module ExcelMail
                 Else
                     stcol -= 1
                 End If
-                prfrm.set_val((nRow * dg.Columns.Count + nCol + 1) / (dg.Rows.Count * dg.Columns.Count) * 100)
+                'prfrm.set_val((nRow * dg.Columns.Count + nCol + 1) / (dg.Rows.Count * dg.Columns.Count) * 100)
             Next nCol
         Next nRow
         If how_to_format = "" Then
 
         End If
-        prfrm.Close()
+        'prfrm.Close()
 
     End Sub
 
@@ -147,7 +146,7 @@ Module ExcelMail
 
             If blnIsVisible Then MsgBox(ex.ToString, MsgBoxStyle.Exclamation, "Error populating workbook")
             ForceExcelToQuit(objExcel)
-            Add_error(Err)
+            'Add_error(Err)
 
         End Try
 
@@ -171,7 +170,7 @@ Module ExcelMail
             If blnRemoveFileAfterwards = True Then My.Computer.FileSystem.DeleteFile(strFilename)
             Return True
         Catch ex As Exception
-            Add_error(Err)
+            'Add_error(Err)
             MsgBox("Please Fill in SMTP Host")
             Return False
         End Try
@@ -212,7 +211,7 @@ Module ExcelMail
 
             Return True
         Catch ex As Exception
-            Add_error(Err)
+            'Add_error(Err)
             MsgBox("Please Fill in SMTP Host")
             Return False
         End Try
@@ -250,7 +249,7 @@ Module ExcelMail
 
             If blnIsVisible Then MsgBox(ex.ToString, MsgBoxStyle.Exclamation, "Error populating workbook")
             ForceExcelToQuit(objExcel)
-            Add_error(Err)
+            'Add_error(Err)
 
         End Try
 
@@ -353,35 +352,35 @@ Module ExcelMail
         xlWs = xlWb.Worksheets(1)
 
         Try
-            Dim cnt As New ADODB.Connection
-            Dim rst As New ADODB.Recordset
+            'Dim cnt As New ADODB.Connection
+            'Dim rst As New ADODB.Recordset
 
             Dim fldCount As Integer
 
             Dim iCol As Integer
 
-            cnt.Open("Provider=SQLOLEDB;" & BKO.My.Settings.BKOConnectionString)
+            'cnt.Open("Provider=SQLOLEDB;" & BKO.My.Settings.BKOConnectionString)
 
-            rst.Open(sql_str, cnt)
+            'rst.Open(sql_str, cnt)
 
             ' Вывести Excel на экран позволить пользователю управлять временем работы Excel
             xlApp.Visible = True
             xlApp.UserControl = True
 
             ' Скопировать имена полей в первую строку листа
-            fldCount = rst.Fields.Count
+            'fldCount = rst.Fields.Count
             For iCol = 1 To fldCount
-                xlWs.Cells(1, iCol).Value = rst.Fields(iCol - 1).Name
+                'xlWs.Cells(1, iCol).Value = rst.Fields(iCol - 1).Name
             Next
 
-            xlWs.Cells(2, 1).CopyFromRecordset(rst)
+            'xlWs.Cells(2, 1).CopyFromRecordset(rst)
 
         Catch
 
             xlWb.Close(False)
             xlApp.quit()
 
-            Add_error(Err)
+            'Add_error(Err)
 
         End Try
     End Sub
@@ -461,7 +460,7 @@ Module ExcelMail
             While (System.Runtime.InteropServices.Marshal.ReleaseComObject(o) > 0)
             End While
         Catch
-            Add_error(Err)
+            'Add_error(Err)
         Finally
             o = Nothing
         End Try
