@@ -1,8 +1,13 @@
 ﻿Imports Microsoft.Office.Interop
+Imports Microsoft.Office.Interop.Excel.Constants
 Imports Microsoft.Office.Interop.Excel.XlLineStyle
 Imports Microsoft.Office.Interop.Excel.XlBorderWeight
+Imports Microsoft.Office.Interop.Excel.XlLookAt
+Imports Microsoft.Office.Interop.Excel.XlSearchOrder
 Imports System.Net.Mail
 Imports System.IO
+Imports System.Linq
+Imports Microsoft.Office.Interop.Excel.XlBordersIndex
 Public Class Form1
 
     Private colNumber As Integer = 0
@@ -28,6 +33,7 @@ Public Class Form1
         Dim replaceBoolTrueVal As String
         Dim replaceBoolFalseVal As String
         Dim RangeOfCellsForNamesOfColsFromAnotherFile As String
+        Dim SymbolForReplaceEmptyValues As Char
     End Structure
 
     Function StartExcel(Optional ByVal IsVisible As Boolean = False, Optional NumOfSheets As Integer = 1) As Object 'Excel.Application
@@ -39,16 +45,6 @@ Public Class Form1
         Return objExcel
 
     End Function
-
-    'Sub ForceExcelToQuit(ByVal objExcel As Object) 'Excel.Application)
-
-    '    Try
-    '        objExcel.Quit()
-    '    Catch ex As Exception
-    '        MsgBox(ex)
-    '    End Try
-
-    'End Sub
 
     Private Sub TakeNamesFromAnotherFile(xlws As Excel.Worksheet, ByVal stgs As Settings)
         Try
@@ -95,6 +91,10 @@ Public Class Form1
 
         If stgs.FirstRow = 0 Then stgs.FirstRow = 1
         If stgs.FirstCol = 0 Then stgs.FirstCol = 1
+        If stgs.SymbolForReplaceEmptyValues = vbNullChar Then
+            stgs.SymbolForReplaceEmptyValues = "-"
+
+        End If
     End Sub
 
     Private Sub DataTableToExcelSheet(ByVal dt As DataTable, xlws As Excel.Worksheet, ByRef stgs As Settings)
@@ -122,7 +122,11 @@ Public Class Form1
             xlws.Cells(fRow, fCol).Font.Bold = True
             xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "" + ChrW(64 + dt.Columns.Count) + fRow.ToString).HorizontalAlignment = Excel.XlHAlign.xlHAlignCenter
             xlws.Cells(fRow, fCol) = stgs.NameOfTable
-            xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "" + ChrW(64 + dt.Columns.Count + stgs.FirstCol) + fRow.ToString).MergeCells = True
+            If ChrW(64 + dt.Columns.Count + stgs.FirstCol) > "Z" Then
+                xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "A" + ChrW(38 + dt.Columns.Count + stgs.FirstCol) + fRow.ToString).MergeCells = True
+            Else
+                xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "" + ChrW(64 + dt.Columns.Count + stgs.FirstCol) + fRow.ToString).MergeCells = True
+            End If
             stgs.FirstRow += 1
         End If
 
@@ -146,6 +150,7 @@ Public Class Form1
             xlws.Cells(stgs.FirstRow + dt.Rows.Count + 1 + NeedOneMoreCell, fCol) = "Среднее"
             xlws.Rows(stgs.FirstRow + dt.Rows.Count + 1 + NeedOneMoreCell).Font.Bold = True
         End If
+        If (Not stgs.ColsNamesForAvgCalc Is Nothing OrElse Not stgs.ColsNamesForSumCalc Is Nothing) AndAlso fCol = stgs.FirstCol Then stgs.FirstCol += 1
 
         ' Проставляем имена столбцов
         If stgs.NeedNamesOfCols Then
@@ -174,7 +179,8 @@ Public Class Form1
 
             Try
                 'Set the content from datatable (which Is converted as array And again converted as string) 
-                Clipboard.SetText(AryToString(ToArray(dt)))
+
+                Clipboard.SetText(AryToString(ToArray(dt)), TextDataFormat.UnicodeText)
 
                 'Identifiy And select the range of cells in Excel to paste the clipboard data. 
                 xlws.Cells(stgs.FirstRow, i + stgs.FirstCol).Select()
@@ -191,28 +197,47 @@ Public Class Form1
         xlws.Range("" + ChrW(64 + stgs.FirstCol) + (stgs.FirstRow).ToString + "", "" + ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) +
                  (stgs.FirstRow + dt.Rows.Count - 1).ToString + "").Font.Name = stgs.FontOfCells
 
+        Dim range1 As Excel.Range
         ' Форматирование
         For idx As Integer = 0 To dt.Columns.Count - 1
             Dim intTest As Integer, dblTest As Double, dateTest As Date, boolTest As Boolean
 
-            If Integer.TryParse(xlws.Cells(stgs.FirstRow, stgs.FirstCol + idx).Value, intTest) AndAlso
-                intTest = Double.Parse(xlws.Cells(stgs.FirstRow, stgs.FirstCol + idx).Value) Then
-                With xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
+            If ChrW(64 + stgs.FirstCol + idx) > "Z" Then
+                range1 = xlws.Range("A" + ChrW(38 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "A" +
+                           ChrW(38 + stgs.FirstCol + idx) + (stgs.FirstRow + dt.Rows.Count - 1).ToString)
+            Else
+                range1 = xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
                            ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow + dt.Rows.Count - 1).ToString)
-                    .NumberFormat = "# ##0"
+            End If
+
+            ' Проверяем первые 5 строк на пустоту
+            Dim k As Integer = 0
+            While (k < 5 AndAlso xlws.Cells(stgs.FirstRow + k, stgs.FirstCol + idx).Value Is Nothing)
+                k += 1
+            End While
+
+            If Integer.TryParse(xlws.Cells(stgs.FirstRow + k, stgs.FirstCol + idx).Value, intTest) AndAlso
+                intTest = Double.Parse(xlws.Cells(stgs.FirstRow + k, stgs.FirstCol + idx).Value) Then
+                With range1
+                    '.TextToColumns()
+                    If Not range1.Find(",") Is Nothing Then
+                        .NumberFormatLocal = "# ##0" + Application.CurrentCulture.NumberFormat.NumberDecimalSeparator + "00"
+                    Else
+                        .NumberFormatLocal = "# ##0"
+                    End If
                     .HorizontalAlignment = Excel.XlHAlign.xlHAlignRight
                 End With
 
-            ElseIf Double.TryParse(xlws.Cells(stgs.FirstRow + 1, stgs.FirstCol + idx).Value, dblTest) Then
-                With xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
-                           ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow + dt.Rows.Count - 1).ToString)
-                    .NumberFormat = "# ##0.00" ' 2 знака после запятой с разделением разрядов
+            ElseIf (Not xlws.Cells(stgs.FirstRow + k, stgs.FirstCol + idx).Value Is Nothing) AndAlso
+            Double.TryParse(xlws.Cells(stgs.FirstRow + k, stgs.FirstCol + idx).Value.ToString.Replace(".", ","), dblTest) Then
+                With range1
+                    '.TextToColumns()
+                    .NumberFormatLocal = "# ##0" + Application.CurrentCulture.NumberFormat.NumberDecimalSeparator + "00" ' 2 знака после запятой с разделением разрядов
                     .HorizontalAlignment = Excel.XlHAlign.xlHAlignRight
                 End With
 
-            ElseIf Date.TryParse(xlws.Cells(stgs.FirstRow + 1, stgs.FirstCol + idx).Value, dateTest) Then
-                xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
-                            ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow + dt.Rows.Count - 1).ToString).HorizontalAlignment = Excel.XlHAlign.xlHAlignCenter
+            ElseIf Date.TryParse(xlws.Cells(stgs.FirstRow + 1 + k, stgs.FirstCol + idx).Value, dateTest) Then
+                range1.HorizontalAlignment = Excel.XlHAlign.xlHAlignCenter
                 For i As Integer = 1 To dt.Rows.Count
                     If Date.TryParse(xlws.Cells(stgs.FirstRow + i - 1, stgs.FirstCol + idx).Value, dateTest) Then
                         xlws.Cells(stgs.FirstRow + i - 1, stgs.FirstCol + idx).Value = dateTest.ToShortDateString
@@ -229,15 +254,26 @@ Public Class Form1
                     End If
                 Next
             Else
-                xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
-                            ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow + dt.Rows.Count - 1).ToString).HorizontalAlignment = Excel.XlHAlign.xlHAlignLeft
+                range1.HorizontalAlignment = Excel.XlHAlign.xlHAlignLeft
             End If
         Next
 
         ' Заменяем пустые ячейки
-        xlws.Range("" + ChrW(64 + fCol) + (fRow + 1).ToString + "", "" + ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) +
+
+        Dim CellForBorder As Integer = 0
+        If Not stgs.NeedNumeration AndAlso (Not stgs.ColsNamesForAvgCalc Is Nothing OrElse Not stgs.ColsNamesForSumCalc Is Nothing) Then CellForBorder = 1
+
+        Try
+            If ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) > "Z" Then
+                xlws.Range("" + ChrW(64 + stgs.FirstCol + CellForBorder) + (fRow + 1).ToString + "", "A" + ChrW(38 + dt.Columns.Count - 1 + stgs.FirstCol) +
                  (stgs.FirstRow + dt.Rows.Count - 1).ToString + "").SpecialCells(Excel.XlCellType.xlCellTypeBlanks).Select()
-        xlws.Application.Selection.Value = "-"
+            Else
+                xlws.Range("" + ChrW(64 + stgs.FirstCol + CellForBorder) + (fRow + 1).ToString + "", "" + ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) +
+                 (stgs.FirstRow + dt.Rows.Count - 1).ToString + "").SpecialCells(Excel.XlCellType.xlCellTypeBlanks).Select()
+            End If
+            xlws.Application.Selection.Value = stgs.SymbolForReplaceEmptyValues.ToString
+        Catch ex As Exception
+        End Try
 
         ' Делаем автоширину с возможным ограничением
         If stgs.NeedAutoWidth Then
@@ -255,22 +291,46 @@ Public Class Form1
         If Not stgs.NameOfTable Is Nothing Then CellForName = 1
 
         If stgs.NeedBorder Then
-            xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) +
+            If ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) > "Z" Then
+                xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "A" + ChrW(38 + dt.Columns.Count - 1 + stgs.FirstCol) +
                  (stgs.FirstRow + dt.Rows.Count - 1 + PlaceForSumAndAvg).ToString + "").Select()
+            Else
+                xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) +
+                 (stgs.FirstRow + dt.Rows.Count - 1 + PlaceForSumAndAvg).ToString + "").Select()
+            End If
+
             With xlws.Application.Selection().Borders '(xlEdgeLeft)
                 .LineStyle = xlContinuous
                 .Weight = xlMedium
             End With
+
+            xlws.Application.Selection.Borders(xlInsideVertical).LineStyle = xlNone
+            xlws.Application.Selection.Borders(xlInsideHorizontal).LineStyle = xlNone
+
         End If
 
+
         If stgs.NeedGrid Then
-            With xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) +
-                            (stgs.FirstRow + dt.Rows.Count - 1 + PlaceForSumAndAvg).ToString + "").Borders
+            If ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) > "Z" Then
+                xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "A" + ChrW(38 + dt.Columns.Count - 1 + stgs.FirstCol) +
+                 (stgs.FirstRow + dt.Rows.Count - 1 + PlaceForSumAndAvg).ToString + "").Select()
+            Else
+                xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) +
+                 (stgs.FirstRow + dt.Rows.Count - 1 + PlaceForSumAndAvg).ToString + "").Select()
+            End If
+
+            With xlws.Application.Selection().Borders
                 .LineStyle = xlContinuous
                 .Weight = xlThin
             End With
 
-            xlws.Range(ChrW(64 + fCol) + (fRow + CellForName).ToString, ChrW(64 + fCol + dt.Columns.Count) + (fRow + CellForName).ToString).Select()
+            If ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) > "Z" Then
+                xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "A" + ChrW(38 + fCol + dt.Columns.Count) +
+                 (fRow + CellForName).ToString + "").Select()
+            Else
+                xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "" + ChrW(64 + fCol + dt.Columns.Count) +
+                 (fRow + CellForName).ToString + "").Select()
+            End If
 
             With xlws.Application.Selection.Borders '(xlEdgeLeft)
                 .LineStyle = xlDouble
@@ -285,7 +345,7 @@ Public Class Form1
                 xlws.Rows(fRow + CellForName).Select()
             Else
                 Dim cells As String() = stgs.ColsForAutoFilter.Split(New Char() {";", ":", ","})
-                xlws.Range(ChrW(65 + cells(0)) + (fRow + CellForName).ToString, ChrW(65 + cells(1)) + (fRow + CellForName).ToString).Select()
+                xlws.Range(ChrW(63 + cells(0) + fCol + CellForBorder) + (fRow + CellForName).ToString, ChrW(63 + cells(1) + fCol + CellForBorder) + (fRow + CellForName).ToString).Select()
             End If
             xlws.Application.Application.Selection.AutoFilter()
         End If
@@ -300,9 +360,16 @@ Public Class Form1
             If Not stgs.ColsNamesForSumCalc Is Nothing Then
                 For nCol = 0 To stgs.ColsNamesForSumCalc.Count - 1
                     Dim idh = Array.IndexOf(Captions.ToArray(), stgs.ColsNamesForSumCalc(nCol))
-                    xlws.Cells(stgs.FirstRow + dt.Rows.Count, stgs.FirstCol + idh).Value = "=SUM(" +
+
+                    If ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) > "Z" Then
+                        xlws.Cells(stgs.FirstRow + dt.Rows.Count, stgs.FirstCol + idh).Value = "=SUM(A" +
+                            ChrW(38 + idh + stgs.FirstCol) + (stgs.FirstRow).ToString + ":A" + ChrW(38 + idh + stgs.FirstCol) +
+                            (stgs.FirstRow + dt.Rows.Count - 1).ToString + ")"
+                    Else
+                        xlws.Cells(stgs.FirstRow + dt.Rows.Count, stgs.FirstCol + idh).Value = "=SUM(" +
                             ChrW(64 + idh + stgs.FirstCol) + (stgs.FirstRow).ToString + ":" + ChrW(64 + idh + stgs.FirstCol) +
                             (stgs.FirstRow + dt.Rows.Count - 1).ToString + ")"
+                    End If
                 Next
             End If
 
@@ -313,9 +380,15 @@ Public Class Form1
 
                 For nCol = 0 To stgs.ColsNamesForSumCalc.Count - 1
                     Dim idh = Array.IndexOf(Captions.ToArray(), stgs.ColsNamesForSumCalc(nCol))
-                    xlws.Cells(stgs.FirstRow + dt.Rows.Count + NeedOneMoreCell, stgs.FirstCol + idh).Value = "=Average(" +
-                                ChrW(64 + idh + stgs.FirstCol) + (stgs.FirstRow).ToString + ":" + ChrW(64 + idh + stgs.FirstCol) +
-                                (stgs.FirstRow + dt.Rows.Count - 1).ToString + ")"
+                    If ChrW(64 + dt.Columns.Count - 1 + stgs.FirstCol) > "Z" Then
+                        xlws.Cells(stgs.FirstRow + dt.Rows.Count + NeedOneMoreCell, stgs.FirstCol + idh).Value = "=Average(A" +
+                            ChrW(38 + idh + stgs.FirstCol) + (stgs.FirstRow).ToString + ":A" + ChrW(38 + idh + stgs.FirstCol) +
+                            (stgs.FirstRow + dt.Rows.Count - 1).ToString + ")"
+                    Else
+                        xlws.Cells(stgs.FirstRow + dt.Rows.Count + NeedOneMoreCell, stgs.FirstCol + idh).Value = "=Average(" +
+                            ChrW(64 + idh + stgs.FirstCol) + (stgs.FirstRow).ToString + ":" + ChrW(64 + idh + stgs.FirstCol) +
+                            (stgs.FirstRow + dt.Rows.Count - 1).ToString + ")"
+                    End If
                 Next
             End If
         End If
@@ -343,11 +416,11 @@ Public Class Form1
             With xlws
                 .Range("A1", Type.Missing).EntireRow.Font.Bold = True
                 'Set Clipboard Copy Mode     
-                DataGridView1.ClipboardCopyMode = DataGridViewClipboardCopyMode.EnableAlwaysIncludeHeaderText
-                DataGridView1.SelectAll()
+                dgv.ClipboardCopyMode = DataGridViewClipboardCopyMode.EnableAlwaysIncludeHeaderText
+                dgv.SelectAll()
 
                 'Get the content from Grid for Clipboard     
-                Dim str As String = TryCast(DataGridView1.GetClipboardContent().GetData(DataFormats.UnicodeText), String)
+                Dim str As String = TryCast(dgv.GetClipboardContent().GetData(DataFormats.UnicodeText), String)
 
                 'Set the content to Clipboard     
                 Clipboard.SetText(str, TextDataFormat.UnicodeText)
@@ -359,6 +432,21 @@ Public Class Form1
                 .Paste()
                 Clipboard.Clear()
             End With
+            Dim range0 As Excel.Range
+            For idx As Integer = 0 To dgv.Columns.Count - 1
+
+                If ChrW(66 + idx) > "Z" Then
+                    range0 = xlws.Range("A" + ChrW(40 + idx) + "1", "A" +
+                               ChrW(40 + idx) + (dgv.Rows.Count).ToString)
+                Else
+                    range0 = xlws.Range("" + ChrW(66 + idx) + "1", "" +
+                               ChrW(66 + idx) + (dgv.Rows.Count).ToString)
+                End If
+                Try
+                    range0.TextToColumns()
+                Catch ex As Exception
+                End Try
+            Next
             Return
         End If
 
@@ -394,9 +482,17 @@ Public Class Form1
             xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "" + ChrW(64 + dgv.Columns.Count) + fRow.ToString).HorizontalAlignment = Excel.XlHAlign.xlHAlignCenter
 
             If stgs.ShowHiddenCols Then
-                xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "" + ChrW(64 + dgv.Columns.Count + stgs.FirstCol) + fRow.ToString).MergeCells = True
+                If ChrW(64 + dgv.Columns.Count + stgs.FirstCol) > "Z" Then
+                    xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "A" + ChrW(38 + dgv.Columns.Count + stgs.FirstCol) + fRow.ToString).MergeCells = True
+                Else
+                    xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "" + ChrW(64 + dgv.Columns.Count + stgs.FirstCol) + fRow.ToString).MergeCells = True
+                End If
             Else
-                xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "" + ChrW(64 + dgv.Columns.Count + stgs.FirstCol - hiddenCols) + fRow.ToString).MergeCells = True
+                If ChrW(64 + dgv.Columns.Count + stgs.FirstCol) > "Z" Then
+                    xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "A" + ChrW(38 + dgv.Columns.Count + stgs.FirstCol - hiddenCols) + fRow.ToString).MergeCells = True
+                Else
+                    xlws.Range("" + ChrW(64 + fCol) + fRow.ToString + "", "" + ChrW(64 + dgv.Columns.Count + stgs.FirstCol - hiddenCols) + fRow.ToString).MergeCells = True
+                End If
             End If
 
         End If
@@ -408,20 +504,19 @@ Public Class Form1
                 xlws.Cells(stgs.FirstRow + nRow, stgs.FirstCol) = nRow
             Next
             stgs.FirstCol += 1
-
-            ' Именования суммы и среднего значения
-            If Not stgs.ColsNamesForSumCalc Is Nothing Then
-                xlws.Cells(stgs.FirstRow + dgv.Rows.Count, fCol) = "Сумма"
-                xlws.Rows(stgs.FirstRow + dgv.Rows.Count).Font.Bold = True
-            End If
-            If Not stgs.ColsNamesForAvgCalc Is Nothing Then
-                Dim NeedOneMoreCell As Integer = 0
-                If Not stgs.ColsNamesForSumCalc Is Nothing Then NeedOneMoreCell = 1
-                xlws.Cells(stgs.FirstRow + dgv.Rows.Count + NeedOneMoreCell, fCol) = "Среднее"
-                xlws.Rows(stgs.FirstRow + dgv.Rows.Count + NeedOneMoreCell).Font.Bold = True
-            End If
-
         End If
+        ' Именования суммы и среднего значения
+        If Not stgs.ColsNamesForSumCalc Is Nothing Then
+            xlws.Cells(stgs.FirstRow + dgv.Rows.Count, fCol) = "Сумма"
+            xlws.Rows(stgs.FirstRow + dgv.Rows.Count).Font.Bold = True
+        End If
+        If Not stgs.ColsNamesForAvgCalc Is Nothing Then
+            Dim NeedOneMoreCell As Integer = 0
+            If Not stgs.ColsNamesForSumCalc Is Nothing Then NeedOneMoreCell = 1
+            xlws.Cells(stgs.FirstRow + dgv.Rows.Count + NeedOneMoreCell, fCol) = "Среднее"
+            xlws.Rows(stgs.FirstRow + dgv.Rows.Count + NeedOneMoreCell).Font.Bold = True
+        End If
+        If (Not stgs.ColsNamesForAvgCalc Is Nothing OrElse Not stgs.ColsNamesForSumCalc Is Nothing) AndAlso fCol = stgs.FirstCol Then stgs.FirstCol += 1
 
         ' Проставляем имена столбцов
         If stgs.NeedNamesOfCols Then
@@ -448,71 +543,75 @@ Public Class Form1
         End If
 
         ' Заполнение ячеек
-        If stgs.ShowHiddenCols Then
-            For i = 0 To dgv.Columns.Count - 1
+        Dim g As Integer = 0
+        For i As Integer = 0 To dgv.Columns.Count - 1
+            If Not (dgv.Columns(i).Visible OrElse stgs.ShowHiddenCols) Then
+                Continue For
+            End If
 
-                colNumber = i
+            colNumber = i
 
-                Try
-                    'Set the content from datatable (which Is converted as array And again converted as string) 
-                    Clipboard.SetText(AryToString(ToArray(dgv.DataSource)))
+            Try
+                'Set the content from datatable (which Is converted as array And again converted as string) 
+                Clipboard.SetText(AryToString(ToArray(dgv.DataSource)))
 
-                    'Identifiy And select the range of cells in Excel to paste the clipboard data. 
-                    xlws.Cells(stgs.FirstRow, i + stgs.FirstCol).Select()
+                'Identifiy And select the range of cells in Excel to paste the clipboard data. 
+                xlws.Cells(stgs.FirstRow, g + stgs.FirstCol).Select()
 
-                    'Paste the clipboard data 
-                    xlws.Paste()
-                    Clipboard.Clear()
-                Catch ex As Exception
-                    For j = 0 To dgv.Rows.Count - 1
-                        xlws.Cells(stgs.FirstRow + j, stgs.FirstCol + i).Value = dgv.DataSource.Rows(j)(i)
-                    Next
-                End Try
-            Next
-        Else
-            'Data transfer from grid to Excel.  
-            With xlws
-                'Set Clipboard Copy Mode     
-                DataGridView1.ClipboardCopyMode = DataGridViewClipboardCopyMode.EnableWithoutHeaderText
-                DataGridView1.SelectAll()
-
-                'Get the content from Grid for Clipboard     
-                Dim str As String = TryCast(DataGridView1.GetClipboardContent().GetData(DataFormats.UnicodeText), String)
-
-                'Set the content to Clipboard     
-                Clipboard.SetText(str, TextDataFormat.UnicodeText)
-
-                'Identify And select the range of cells in Excel to paste the clipboard data.     
-                .Cells(stgs.FirstRow, stgs.FirstCol).Select()
-
-                'Paste the clipboard data     
-                .Paste()
+                'Paste the clipboard data 
+                xlws.Paste()
                 Clipboard.Clear()
-            End With
-        End If
+                g += 1
+            Catch ex As Exception
+                For j = 0 To dgv.Rows.Count - 1
+                    xlws.Cells(stgs.FirstRow + j, stgs.FirstCol + colNumber).Value = dgv.DataSource.Rows(j)(colNumber)
+                Next
+                g += 1
+            End Try
+        Next
 
         xlws.Range("" + ChrW(64 + stgs.FirstCol) + (stgs.FirstRow).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol) +
                  (stgs.FirstRow + dgv.Rows.Count - 1).ToString + "").Font.Name = stgs.FontOfCells
 
+
         ' Форматирование
+        Dim range1 As Excel.Range
         For idx As Integer = 0 To dgv.Columns.Count - 1
-            Dim intTest As Integer, dblTest As Double, dateTest As Date, boolTest As Boolean
-            If Integer.TryParse(xlws.Cells(stgs.FirstRow, stgs.FirstCol + idx).Value, intTest) AndAlso
-                intTest = Double.Parse(xlws.Cells(stgs.FirstRow, stgs.FirstCol + idx).Value) Then
-                With xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
+
+            If ChrW(64 + stgs.FirstCol + idx) > "Z" Then
+                range1 = xlws.Range("A" + ChrW(38 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "A" +
+                           ChrW(38 + stgs.FirstCol + idx) + (stgs.FirstRow + dgv.Rows.Count - 1).ToString)
+            Else
+                range1 = xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
                            ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow + dgv.Rows.Count - 1).ToString)
-                    .NumberFormat = "# ##0"
+            End If
+
+            ' Проверяем первые 5 строк на пустоту
+            Dim k As Integer = 0
+            While (k < 5 AndAlso xlws.Cells(stgs.FirstRow + k, stgs.FirstCol + idx).Value Is Nothing)
+                k += 1
+            End While
+
+            Dim intTest As Integer, dblTest As Double, dateTest As Date, boolTest As Boolean
+            If Integer.TryParse(xlws.Cells(stgs.FirstRow + k, stgs.FirstCol + idx).Value, intTest) AndAlso
+                intTest = Double.Parse(xlws.Cells(stgs.FirstRow, stgs.FirstCol + idx).Value) Then
+                With range1
+                    '.TextToColumns()
+                    If Not range1.Find(",") Is Nothing Then
+                        .NumberFormatLocal = "# ##0" + Application.CurrentCulture.NumberFormat.NumberDecimalSeparator + "00"
+                    Else
+                        .NumberFormatLocal = "# ##0"
+                    End If
                     .HorizontalAlignment = Excel.XlHAlign.xlHAlignRight
                 End With
-            ElseIf Double.TryParse(xlws.Cells(stgs.FirstRow + 1, stgs.FirstCol + idx).Value, dblTest) Then
-                With xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
-                           ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow + dgv.Rows.Count - 1).ToString)
-                    .NumberFormat = "# ##0.00"
+            ElseIf Double.TryParse(xlws.Cells(stgs.FirstRow + k, stgs.FirstCol + idx).Value, dblTest) Then
+                With range1
+                    '.TextToColumns()
+                    .NumberFormatLocal = "# ##0" + Application.CurrentCulture.NumberFormat.NumberDecimalSeparator + "00" ' 2 знака после запятой с разделением разрядов
                     .HorizontalAlignment = Excel.XlHAlign.xlHAlignRight
                 End With
             ElseIf Date.TryParse(xlws.Cells(stgs.FirstRow + 1, stgs.FirstCol + idx).Value, dateTest) Then
-                xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
-                            ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow + dgv.Rows.Count - 1).ToString).HorizontalAlignment = Excel.XlHAlign.xlHAlignCenter
+                range1.HorizontalAlignment = Excel.XlHAlign.xlHAlignCenter
                 For i As Integer = 1 To dgv.Rows.Count
                     If Date.TryParse(xlws.Cells(stgs.FirstRow + i - 1, stgs.FirstCol + idx).Value, dateTest) Then
                         xlws.Cells(stgs.FirstRow + i - 1, stgs.FirstCol + idx).Value = dateTest.ToShortDateString
@@ -529,15 +628,24 @@ Public Class Form1
                     End If
                 Next
             Else
-                xlws.Range("" + ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow).ToString + "", "" +
-                            ChrW(64 + stgs.FirstCol + idx) + (stgs.FirstRow + dgv.Rows.Count - 1).ToString).HorizontalAlignment = Excel.XlHAlign.xlHAlignLeft
+                range1.HorizontalAlignment = Excel.XlHAlign.xlHAlignLeft
             End If
         Next
 
         ' Заменяем пустые ячейки
-        xlws.Range("" + ChrW(64 + fCol) + (fRow + 1).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) +
+        Dim CellForBorder As Integer = 0
+        If Not stgs.NeedNumeration AndAlso (Not stgs.ColsNamesForAvgCalc Is Nothing OrElse Not stgs.ColsNamesForSumCalc Is Nothing) Then CellForBorder = 1
+        Try
+            If ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) > "Z" Then
+                xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + 1).ToString + "", "A" + ChrW(38 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) +
                  (stgs.FirstRow + dgv.Rows.Count - 2).ToString + "").SpecialCells(Excel.XlCellType.xlCellTypeBlanks).Select()
-        xlws.Application.Selection.Value = "-"
+            Else
+                xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + 1).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) +
+                 (stgs.FirstRow + dgv.Rows.Count - 2).ToString + "").SpecialCells(Excel.XlCellType.xlCellTypeBlanks).Select()
+            End If
+            xlws.Application.Selection.Value = stgs.SymbolForReplaceEmptyValues.ToString
+        Catch ex As Exception
+        End Try
 
         ' Делаем автоширину с возможной максимальной шириной
         If stgs.NeedAutoWidth Then
@@ -556,28 +664,52 @@ Public Class Form1
 
         If stgs.NeedBorder Then
             If stgs.ShowHiddenCols Then
-                xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol) +
+                If ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol) > "Z" Then
+                    xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "A" + ChrW(38 + dgv.Columns.Count - 1 + stgs.FirstCol) +
                  (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "").Select()
+                Else
+                    xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol) +
+                 (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "").Select()
+                End If
             Else
-                xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) +
+                If ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) > "Z" Then
+                    xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "A" + ChrW(38 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) +
                  (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "").Select()
+                Else
+                    xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) +
+                 (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "").Select()
+                End If
+
             End If
             With xlws.Application.Selection().Borders '(xlEdgeLeft)
                 .LineStyle = xlContinuous
                 .Weight = xlMedium
             End With
+            xlws.Application.Selection.Borders(xlInsideVertical).LineStyle = xlNone
+            xlws.Application.Selection.Borders(xlInsideHorizontal).LineStyle = xlNone
 
         End If
 
         If stgs.NeedGrid Then
 
             If stgs.ShowHiddenCols Then
-                With xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol) +
-                            (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "").Borders
+                If ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol) > "Z" Then
+                    range1 = xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "A" + ChrW(38 + dgv.Columns.Count - 1 + stgs.FirstCol) +
+                 (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "")
+                Else
+                    range1 = xlws.Range("" + ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol) +
+                 (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "")
+                End If
+                With range1.Borders
                     .LineStyle = xlContinuous
                     .Weight = xlThin
                 End With
-                xlws.Range(ChrW(64 + fCol) + (fRow + CellForName).ToString, ChrW(64 + fCol + dgv.Columns.Count) + (fRow + CellForName).ToString).Select()
+
+                If ChrW(64 + fCol + dgv.Columns.Count) > "Z" Then
+                    xlws.Range(ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString, "A" + ChrW(38 + fCol + dgv.Columns.Count) + (fRow + CellForName).ToString).Select()
+                Else
+                    xlws.Range(ChrW(64 + fCol + CellForBorder) + (fRow + CellForName).ToString, ChrW(64 + fCol + dgv.Columns.Count) + (fRow + CellForName).ToString).Select()
+                End If
 
                 With xlws.Application.Selection.Borders '(xlEdgeLeft)
                     .LineStyle = xlDouble
@@ -586,12 +718,23 @@ Public Class Form1
                     .Weight = xlThick
                 End With
             Else
-                With xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) +
-                            (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "").Borders
+                If ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol) > "Z" Then
+                    range1 = xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "A" + ChrW(38 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) +
+                 (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "")
+                Else
+                    range1 = xlws.Range("" + ChrW(64 + fCol) + (fRow + CellForName).ToString + "", "" + ChrW(64 + dgv.Columns.Count - 1 + stgs.FirstCol - hiddenCols) +
+                 (stgs.FirstRow + dgv.Rows.Count - 2 + PlaceForSumAndAvg).ToString + "")
+                End If
+                With range1.Borders
                     .LineStyle = xlContinuous
                     .Weight = xlThin
                 End With
-                xlws.Range(ChrW(64 + fCol) + (fRow + CellForName).ToString, ChrW(64 + fCol + dgv.Columns.Count) + (fRow + CellForName).ToString).Select()
+
+                If ChrW(64 + fCol + dgv.Columns.Count - hiddenCols) > "Z" Then
+                    xlws.Range(ChrW(64 + fCol) + (fRow + CellForName).ToString, "A" + ChrW(38 + fCol + dgv.Columns.Count - hiddenCols) + (fRow + CellForName).ToString).Select()
+                Else
+                    xlws.Range(ChrW(64 + fCol) + (fRow + CellForName).ToString, ChrW(64 + fCol + dgv.Columns.Count - hiddenCols) + (fRow + CellForName).ToString).Select()
+                End If
 
                 With xlws.Application.Selection.Borders '(xlEdgeLeft)
                     .LineStyle = xlDouble
@@ -607,7 +750,7 @@ Public Class Form1
                 xlws.Rows(fRow + CellForName).Select()
             Else
                 Dim cells As String() = stgs.ColsForAutoFilter.Split(New Char() {";", ":", ","})
-                xlws.Range(ChrW(65 + cells(0)) + (fRow + 1).ToString, ChrW(65 + cells(1)) + (fRow + CellForName).ToString).Select()
+                xlws.Range(ChrW(63 + cells(0) + fCol + CellForBorder) + (fRow + 1).ToString, ChrW(63 + cells(1) + fCol + CellForBorder) + (fRow + CellForName).ToString).Select()
             End If
             xlws.Application.Selection.AutoFilter()
         End If
@@ -625,9 +768,15 @@ Public Class Form1
             If Not stgs.ColsNamesForSumCalc Is Nothing Then
                 For nCol = 0 To stgs.ColsNamesForSumCalc.Count - 1
                     Dim idh = Array.IndexOf(Captions.ToArray(), stgs.ColsNamesForSumCalc(nCol))
-                    xlws.Cells(stgs.FirstRow + dgv.Rows.Count - 1, stgs.FirstCol + idh).Value = "=SUM(" +
+                    If ChrW(64 + idh + stgs.FirstCol) > "Z" Then
+                        xlws.Cells(stgs.FirstRow + dgv.Rows.Count - 1, stgs.FirstCol + idh).Value = "=SUM(A" +
+                            ChrW(38 + idh + stgs.FirstCol) + (stgs.FirstRow).ToString + ":A" + ChrW(38 + idh + stgs.FirstCol) +
+                            (stgs.FirstRow + dgv.Rows.Count - 2).ToString + ")"
+                    Else
+                        xlws.Cells(stgs.FirstRow + dgv.Rows.Count - 1, stgs.FirstCol + idh).Value = "=SUM(" +
                             ChrW(64 + idh + stgs.FirstCol) + (stgs.FirstRow).ToString + ":" + ChrW(64 + idh + stgs.FirstCol) +
                             (stgs.FirstRow + dgv.Rows.Count - 2).ToString + ")"
+                    End If
                 Next
             End If
 
@@ -638,9 +787,15 @@ Public Class Form1
 
                 For nCol = 0 To stgs.ColsNamesForSumCalc.Count - 1
                     Dim idh = Array.IndexOf(Captions.ToArray(), stgs.ColsNamesForSumCalc(nCol))
-                    xlws.Cells(stgs.FirstRow + dgv.Rows.Count - 1 + NeedOneMoreCell, stgs.FirstCol + idh).Value = "=Average(" +
+                    If ChrW(64 + idh + stgs.FirstCol) > "Z" Then
+                        xlws.Cells(stgs.FirstRow + dgv.Rows.Count - 1 + NeedOneMoreCell, stgs.FirstCol + idh).Value = "=Average(A" +
+                                ChrW(38 + idh + stgs.FirstCol) + (stgs.FirstRow).ToString + ":A" + ChrW(38 + idh + stgs.FirstCol) +
+                                (stgs.FirstRow + dgv.Rows.Count - 2).ToString + ")"
+                    Else
+                        xlws.Cells(stgs.FirstRow + dgv.Rows.Count - 1 + NeedOneMoreCell, stgs.FirstCol + idh).Value = "=Average(" +
                                 ChrW(64 + idh + stgs.FirstCol) + (stgs.FirstRow).ToString + ":" + ChrW(64 + idh + stgs.FirstCol) +
                                 (stgs.FirstRow + dgv.Rows.Count - 2).ToString + ")"
+                    End If
                 Next
             End If
         End If
@@ -664,7 +819,7 @@ Public Class Form1
     End Function
 
     Public Function DataRowToString(ByVal dr As System.Data.DataRow) As String
-        Return dr(colNumber).ToString
+        Return dr(colNumber).ToString.Replace(",", ".")
     End Function
 
     'Method convert Array to string 
@@ -800,84 +955,105 @@ Public Class Form1
 
     Private Sub Button7_Click(sender As Object, e As EventArgs) Handles Button7.Click
 
-        Dim xl As Excel.Application = StartExcel()
-        Dim xlwb As Excel.Workbook = xl.Workbooks.Add()
-        Dim xlws As Excel.Worksheet = xlwb.Worksheets.Add()
-        xlwb.Sheets(2).Delete()
+        Dim xl As New Excel.Application
+        xl = StartExcel(True, 1)
+        Dim xlwb As Excel.Workbook
+        xlwb = xl.Workbooks.Add()
+        Dim xlws As Excel.Worksheet
+
+        xlws = xlwb.Sheets(1)
 
         Dim cn As New SqlClient.SqlConnection("Data Source=212.42.46.12;Initial Catalog=CBR_Emm_test;Persist Security Info=True;User ID=EmmWarrior;Password=1qwerTY")
         Dim cmd As New SqlClient.SqlCommand(Nothing, cn)
-        cmd.CommandText = "select top 5 *from Stock_Dr"
+        cmd.CommandText = "select * from Stock_Dr"
         Dim adap As New SqlClient.SqlDataAdapter(cmd)
         Dim dt As New DataTable
-        adap.Fill(dt)
+        'adap.Fill(dt)
 
 
 
         Dim s As New Settings
         s.NameOfWorkSheet = "ListName1"
+        s.NameOfTable = "Hello"
+        s.FirstCol = 4
+        s.FirstRow = 5
         s.NeedGrid = True
         's.NameOfTable = "Hello"
         s.NeedNamesOfCols = True
         s.ColsForAutoFilter = "2:4"
-        s.ColsNamesForAvgCalc = New String() {"ISSUESIZE"}
-        s.ColsNamesForSumCalc = New String() {"ISSUESIZE"}
+        's.ColsNamesForAvgCalc = New String() {"ISSUESIZE"}
+        's.ColsNamesForSumCalc = New String() {"ISSUESIZE"}
         s.NeedNumeration = True
         s.NeedAutoWidth = True
-        's.RangeOfCellsForNamesOfColsFromAnotherFile = "B1:M1"
-        's.CellToFix = "C5"
+        's.CellToFix = "A5"
+        s.FontOfCells = "Arial Narrow"
+        's.MaxWidth = 15
+        's.NeedBorder = True
+        s.SymbolForReplaceEmptyValues = "0"
 
 
-        Call DataTableToExcelSheet(dt, xlws, s)
+        'Call DataTableToExcelSheet(dt, xlws, s)
 
-        ' Чтобы таблица отразилась на той же странице, нужно не создавать новые объекты Settings и Worksheet
-        cmd.CommandText = "select top 10 * from Stock_Dr"
+        '' Чтобы таблица отразилась на той же странице, нужно не создавать новые объекты Settings и Worksheet
+        'cmd.CommandText = "select top 10 * from Stock_Dr"
+
+        'cmd.CommandText = "SELECT [TRADEDATE]      ,[SECID]      ,[BOARDNAME]
+        '    ,[BOARDID]      ,[SHORTNAME]      ,[REGNUMBER]      ,[ISIN]      ,[LISTNAME]      ,[FACEVALUE]      ,[CURRENCYID]
+        '    ,[PREVLEGALCLOSEPRICE]
+        '    ,[PREV]      ,[LEGALOPENPRICE]      ,[OPENPERIOD]
+        '    ,[OPEN]
+        '    ,[LOW]
+        '    ,[HIGH]
+        '    ,[CLOSE]
+        '    ,[CLOSEPERIOD]
+        '    ,[OPENVAL]
+        '    ,[CLOSEVAL]
+        '    ,[LEGALCLOSEPRICE]
+        '    ,[TRENDCLOSE]
+        '    ,[TRENDCLSPR]
+        '    ,[HIGHBID]
+        '    ,[BID]
+        '    ,[OFFER]
+        '    ,[LOWOFFER]
+        '    ,[WAPRICE]
+        '    ,[TRENDWAP]
+        '    ,[TRENDWAPPR]
+        '    ,[VOLUME]
+        '    ,[MARKETPRICE]
+        '    ,[MARKETPRICE2]
+        '    ,[MP2VALTRD]
+        '    ,[MPVALTRD]
+        '    ,[VALUE]
+        '    ,[NUMTRADES]
+        '    ,[ISSUESIZE]
+        '    ,[ADMITTEDQUOTE]
+        '    ,[ADMITTEDVALUE]
+        '    ,[MONTHLYCAPITALIZATION]
+        '    ,[DAILYCAPITALIZATION]
+        '    ,[MARKETPRICE3]
+        '    ,[MARKETPRICE3TRADESVALUE]
+        '    ,[DECIMALS]
+        '    ,[TYPE]
+        '    ,[CLOSEACTIONPRICE]
+        '    ,[WAVAL]
+        'From [CBR_Emm_test].[dbo].[Stock_Market]
+        'Where TRADEDATE ='01/02/2017' and bid is not null"
+        cmd.CommandText = "SELECT [TRADEDATE]      ,[SECID]      ,[BOARDNAME]
+            ,[BOARDID]      ,[SHORTNAME]      ,[REGNUMBER]      ,[ISIN]      ,[LISTNAME]      ,[FACEVALUE]      ,[CURRENCYID]
+            ,[PREVLEGALCLOSEPRICE]      ,[PREV]              ,[OPEN]      ,[LOW]      ,[HIGH]      ,[CLOSE]      ,[OPENVAL]      ,[CLOSEVAL]
+               ,[TRENDCLOSE]      ,[TRENDCLSPR]      ,[HIGHBID]      ,[BID]      ,[OFFER]      ,[LOWOFFER]      ,[WAPRICE]      ,[TRENDWAP]
+            ,[TRENDWAPPR]      ,[VOLUME]      ,[MARKETPRICE2]      ,[MP2VALTRD]      ,[MPVALTRD]      ,[VALUE]
+            ,[NUMTRADES]      ,[ISSUESIZE]      ,[ADMITTEDQUOTE]      ,[ADMITTEDVALUE]      ,[MONTHLYCAPITALIZATION]
+            ,[DAILYCAPITALIZATION]      ,[MARKETPRICE3]      ,[MARKETPRICE3TRADESVALUE]      ,[DECIMALS]      ,[TYPE]      ,[CLOSEACTIONPRICE]
+        FROM [CBR_Emm_test].[dbo].[Stock_Market]
+        where TRADEDATE='01/02/2017' and bid is not null"
         dt = New DataTable
         adap.Fill(dt)
-
-        'xlws = xlwb.Worksheets.Add()
-        's = New Settings
-        's.FirstCol = 5
-        's.FirstRow = 4
-        's.NameOfWorkSheet = "ListNameName"
-        's.NeedGrid = True
-        's.MaxWidth = False
-        ''s.NeedFix = 3
-        's.NeedNamesOfCols = True
-        's.ColsForAutoFilter = "F4:G4"
-        ''s.ColsNamesForSumOrAvgCalc = New String() {"ISSUESIZE"}
-        's.NeedNumeration = True
-        's.FontOfNames = "Times New Roman"
-        's.NeedAutoWidth = True
-        's.NameOfTable = "HelloToo"
-        's.ColsForAutoFilter = Nothing
-        's.RangeOfCellsForNamesOfColsFromAnotherFile = Nothing
         DataGridView1.DataSource = dt
+        'Call DataTableToExcelSheet(dt, xlws, s)
         Call DGVToExcel(DataGridView1, xlws, s)
 
-
-        cmd.CommandText = "select top 5 * from Stock_Dr"
-        dt = New DataTable
-        adap.Fill(dt)
-
-        xlws = xlwb.Worksheets.Add()
-        s = New Settings
-        s.FirstCol = 1
-        s.FirstRow = 1
-        s.NameOfWorkSheet = "ListNameNameToo"
-        's.NeedGrid = True
-        's.NeedFix = 3
-        s.NeedNamesOfCols = True
-        's.ColsForAutoFilter = "F4:G4"
-        's.ColsNamesForSumOrAvgCalc = New String() {"ISSUESIZE"}
-        ''s.NeedNumeration = True
-        s.FontOfNames = "Times New Roman"
-        s.NeedAutoWidth = True
-        s.NameOfTable = "HelloTooToo"
-        DataGridView1.DataSource = dt
-        Call DGVToExcel(DataGridView1, xlws, s, True)
-
-        Call FixesForPrint(xlws)
+        'Call FixesForPrint(xlws)
 
         Call ExcelClose(xl, xlwb)
 

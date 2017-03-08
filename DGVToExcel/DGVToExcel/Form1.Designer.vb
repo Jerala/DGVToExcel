@@ -38,7 +38,7 @@ Partial Class Form1
         Me.DataGridView1.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize
         Me.DataGridView1.Location = New System.Drawing.Point(189, 31)
         Me.DataGridView1.Name = "DataGridView1"
-        Me.DataGridView1.Size = New System.Drawing.Size(240, 150)
+        Me.DataGridView1.Size = New System.Drawing.Size(308, 214)
         Me.DataGridView1.TabIndex = 0
         '
         'Button1
@@ -79,7 +79,7 @@ Partial Class Form1
         '
         'Button6
         '
-        Me.Button6.Location = New System.Drawing.Point(422, 267)
+        Me.Button6.Location = New System.Drawing.Point(422, 280)
         Me.Button6.Name = "Button6"
         Me.Button6.Size = New System.Drawing.Size(75, 37)
         Me.Button6.TabIndex = 6
@@ -97,7 +97,7 @@ Partial Class Form1
         '
         'Button7
         '
-        Me.Button7.Location = New System.Drawing.Point(422, 187)
+        Me.Button7.Location = New System.Drawing.Point(422, 251)
         Me.Button7.Name = "Button7"
         Me.Button7.Size = New System.Drawing.Size(75, 23)
         Me.Button7.TabIndex = 8
